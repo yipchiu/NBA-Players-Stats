@@ -1,0 +1,604 @@
+---
+title: "NBA_Final_Project"
+author: "Ye Chao"
+date: "2019年6月3日"
+output: html_document
+---
+## Library:
+```{r}
+#Library:
+library("data.table")
+library("dplyr")
+library("mgcv")
+library("MASS")
+library("corrplot")
+library("RColorBrewer")
+library("caret")
+library("Metrics")
+library("glmnet")
+library("lars")
+library("ggplot2")
+library("usmap")
+library("tidyverse")
+library("pls")
+library("psych")
+library("SensoMineR")
+```
+
+##Importing the data:
+```{r}
+##======================================================================================##
+##Importing the data##
+Seasondata <- read.csv("C:/Users/chaoye/Desktop/Davis/Quarter 3/TTP 289/project/data/Seasons_Stats.csv", header = TRUE)
+#str(Seasondata)
+Seasondata_Complete <- Seasondata[complete.cases(Seasondata),]
+Seasondata_After1980 <- subset(Seasondata, Seasondata$Year >= 1980)
+
+Players <- read.csv("C:/Users/chaoye/Desktop/Davis/Quarter 3/TTP 289/project/data/Players.csv", header = TRUE)
+Salary <- read.csv("C:/Users/chaoye/Desktop/Davis/Quarter 3/TTP 289/project/data/salary.csv", header = TRUE)
+Seasondata_full <- merge(Seasondata_Complete, Players, by = "Player",all.x = TRUE)
+#Seasondata_full <- arrange(b, Year)
+Seasondata_full$Average.points <- Seasondata_full$Points/Seasondata_full$Games
+
+
+a <- subset(Seasondata_full, Seasondata_full$Year >= 1990)
+
+Season_salary <- merge(a, Salary, by = c("Player", "Year"),all = TRUE)
+Season_salary <- Season_salary[complete.cases(Season_salary),]
+Season_salary=Season_salary[!duplicated(Season_salary),]
+Season_salary$Salary.in.. = as.numeric(gsub("[\\$,]", "", Season_salary$Salary.in..))
+
+rm(a)
+##======================================================================================##
+```
+
+
+## mtable Function:
+```{r}
+mtable<- function (x, bycol, firstvarcol){
+#A function to compute a means table for a matrix.
+#x - the data frame with the data
+#bycol - the row or rows used for grouping (usually products)
+#use c(col1,col2) as the bycol option if using more than one column.
+#firstvarcol - the col containing the first variable
+if (length(bycol)==1){
+  mns<-matrix(nrow=0, ncol=length(levels(as.factor(x[,bycol]))))
+  for (n in firstvarcol:length(x)){
+    m.r<-with(x, tapply(x[,n], x[,bycol], mean))
+    mns<-rbind(mns,m.r[])
+    }
+  mns<-as.data.frame(mns)
+  names(mns)<-names(m.r)
+  rownames(mns)<-names(x[firstvarcol:length(x)])
+  mns<-t(mns)
+  return(mns)
+  }
+else{
+  bc<-paste(x[,bycol[1]],names(x)[bycol[2]],x[,bycol[2]])
+  x.2<-as.data.frame(cbind(bc,x))
+  mns<-matrix(nrow=0, ncol=length(levels(as.factor(x.2$bc))))
+  
+  for (n in (firstvarcol+1):length(x.2)){
+    m.r<-with(x.2, tapply(x.2[,n], x.2$bc, mean))
+    mns<-rbind(mns,m.r[])
+  }
+  mns<-as.data.frame(mns)
+  names(mns)<-names(m.r)
+  rownames(mns)<-names(x.2[(firstvarcol+1):length(x.2)])
+  mns<-t(mns)
+  titl<-paste("Means by", names(x)[bycol[1]], "and",
+  names(x)[bycol[2]])
+  return(mns)
+  }
+}
+```
+
+
+## Part 1: General Analysis:
+
+#### Average Points by Year:
+```{r}
+Seasondata_After1980$Averagepoints <- (Seasondata_After1980$Points/Seasondata_After1980$Games)
+
+P1 <- ggplot(Seasondata_After1980, aes(x= as.factor(Year),y=Averagepoints)) +
+  geom_boxplot()+
+  labs(x= "Season",y = "All Players Average Points ")+
+  labs(title = 'Average points all players', subtitle = "by year since 1980")
+
+P1
+```
+
+#### Score Way by Year
+```{r}
+a <- tapply(Seasondata_After1980$X3point.fieldgoal.attempts, (as.factor(Seasondata_After1980$Year)), mean)
+A <- data.frame(c(1980:2017),a,"3points.shooting")
+names(A) <- c("year","times", "way")
+
+b <- tapply(Seasondata_After1980$X2point.fieldgoal.attempt, (as.factor(Seasondata_After1980$Year)), mean)
+B <- data.frame(c(1980:2017),b,"2points.shooting")
+names(B) <- c("year","times", "way")
+
+c <- tapply(Seasondata_After1980$Free.throw.attempts, as.factor(Seasondata_After1980$Year), mean)
+C <- data.frame(c(1980:2017),c,"freethrow")
+names(C) <- c("year","times", "way")
+
+p2 <- rbind(rbind(A,B),C)
+
+P2 <- ggplot(p2, aes(x=year,y=times))+
+  geom_bar(aes(fill=p2$way),position="dodge",stat = "identity" )+
+  labs(title = "Way of scores", subtitle = "1980-2017")+
+  labs(fill = "Way of Scores")
+P2
+
+rm(a)
+rm(b)
+rm(c)
+rm(A)
+rm(B)
+rm(C)
+rm(p2)
+
+```
+
+#### University Data
+```{r}
+#### University sta
+a<- as.data.frame(table(na.omit(Season_salary$collage)))
+a <- a[order(a$Freq),]
+# nrow(a)
+a <- a[424:1,]
+a <-a[-1,]
+names(a) <- c("college","Freq")
+a <-a[1:10,]
+
+a$college=factor(a$college, levels=c("Syracuse University","Michigan State University","University of Michigan","University of Kansas","Georgia Institute of Technology","Duke University","University of Arizona","University of California, Los Angeles","University of Kentucky","University of North Carolina"))
+
+P3 <- ggplot(a, aes(x = college , y=Freq))+
+  geom_col()+
+  ylab("Number of Students Played in NBA")+
+  coord_flip()+
+  theme(text = element_text(size=20),
+              axis.text.x = element_text(angle=60, hjust=1)) +
+labs(title = "Top 10 colleges whose students get to play in NBA since 1980")
+P3
+rm(a)
+
+```
+
+## Part 2: Linear Models
+
+#### A Failed model:
+```{r}
+
+model1 <- lm(Win.share48 ~  height + weight + Age + Minutes.played + Total.rebounds + Free.throw.attempts + X2point.fieldgoal.attempt + X3point.fieldgoal.attempts + Effective.fieldgoal.percetage + Personal.fouls + Steal + Blocks,  data = Seasondata_full)
+summary(model1)
+
+# Win share.48 is likely calculated by those variables, so the salary data was brought in. 
+
+```
+
+#### Cor-relation Plot:
+```{r}
+x <- data.frame(Seasondata_full[,-(1:4)])
+x <- x[,-c(2,4,18,19,20,51,52,53,54)]
+x<- x[,-c(42,43)]
+x<- as.data.frame(x)
+
+corrplot(cor(x), type="lower", order="hclust", col=brewer.pal(n=8, name="RdYlBu"), tl.cex = 0.7, tl.col = "black")
+rm(x)
+```
+
+#### Define "real.salary":
+```{r}
+# annual 2% currency inflation rate is considered.
+Season_salary$real.salary <- Season_salary$Salary.in..* 1.02^ ( 2018- (Season_salary$Year))
+real.salary <- Season_salary$real.salary
+```
+
+
+#### Principle Component Analysis all Variables:
+
+```{r}
+# PCA----all variables
+
+######.full includes "real.salary", Capital means data.matrix ######
+
+pca.x <- data.frame(Season_salary$Age,Season_salary$Games, Season_salary$True.shooting.percetage, Season_salary$Offensive.rebound.percetage, Season_salary$Defensive.rebound.percetage, Season_salary$Assist.percetage, Season_salary$Steal.percetage, Season_salary$Block.percetage, Season_salary$Turnover.percetage, Season_salary$Field.goal.percetage, Season_salary$X3point.fieldgoal.percetage, Season_salary$X2point.fieldgoal.percetage, Season_salary$Free.throw.percetage, Season_salary$Average.points, Season_salary$height, Season_salary$weight)
+
+pca.full <- data.frame(real.salary,pca.x)
+# 
+pca.X <- data.matrix(pca.x)
+pca.FULL <- data.matrix(pca.full)
+
+fa.parallel(pca.x, fa = 'pc', n.iter = 100, show.legend = FALSE) #Scree plot: outputing number of components
+
+pca = PCA(pca.x, scale.unit=TRUE, ncp=4, graph=TRUE) # Variables Factor Map(PCA), first quadrant: 2point field goal percetage, true shooting percetage, field goal percetage, season salary age, 3 point field goal percetage, games, field goad percetage, season salary.      
+### (Multiple collinearity)####
+
+#pca = PCA(pca.x, scale.unit=FALSE, ncp=4, graph=TRUE)
+
+#dimdesc(pca, axes=c(1,2))
+
+da.panelellipses=panellipse(pca.x, col.p=2, col.j=1, firstvar=3) # Variables Factor Map(PCA), first quadrant: 2point field goal percetage, true shooting percetage, field goal percetage, season salary age, 3 point field goal percetage, games, field goad percetage, season salary.      
+### (Multiple collinearity)####
+
+# pca.method1 <- principal(pca.x, nfactors = 4, rotate = "none")
+# pca.method1
+# 
+# pca.model <- lm(real.salary ~ pca.method1$scores[,1] + pca.method1$scores[,2])
+# summary(model1)
+# 
+# pca.cv <- data.frame(real.salary, pca.method1$scores[,1], pca.method1$scores[,2])
+# names(pca.cv) <- c("real.salary", "pc1", "pc2")
+# 
+# pca.result = train(real.salary ~ pc1 + pc2, data= pca.cv, trControl = k10_cv, method = "lm")
+# pca.result$results
+```
+
+#### lm salary try
+```{r}
+##### Model 2: Salary: lm
+
+model2<- lm(formula = real.salary ~ Age  + Total.rebound.percetage + 
+    Assist.percetage + Steal.percetage + Field.goal.percetage + Free.throw.percetage + height + Average.points, 
+data = Season_salary)
+
+summary(model2)
+plot(model2)
+
+# leverage1 <- hat(model.matrix(model2))
+# plot(leverage1, pch = 19, ylab = "leverage", main = "lm1 leverage plot with odo faulty colored red")
+# 
+# cook <- cooks.distance(model2)
+# plot(cook, pch = 19, ylab = "cook's distance", main = "lm1 cook's distance plot with odo faulty colored red")
+
+
+x <- data.frame(Season_salary$Age, Season_salary$Player.efficiency.rating,Season_salary$Total.rebound.percetage ,
+    Season_salary$Assist.percetage , Season_salary$Steal.percetage , Season_salary$Field.goal.percetage , 
+    Season_salary$Free.throw.percetage , Season_salary$height)
+X <- data.matrix(x)
+
+
+
+set.seed(123)
+training.samples <- real.salary %>%
+  createDataPartition(p = 0.7, list = FALSE)
+train.data  <- x[training.samples, ]
+train.y <- (real.salary[training.samples])
+test.y <- real.salary[-training.samples]
+test.data <- x[-training.samples, ]
+# Build the model
+model2 <- lm(real.salary ~ X, data = train.data)
+# Make predictions and compute the R2, RMSE and MAE
+predictions <- model2 %>% predict(test.data)
+
+#MSE:
+#data.frame( R2 = R2(predictions, real.salary),
+model2_RMSE = RMSE(predictions, real.salary)
+model2_MSE = mse(predictions, real.salary)
+
+
+
+k10_cv = trainControl(method="cv", number=10)
+ols_model2 = train((real.salary) ~ Age  + Total.rebound.percetage + 
+    Assist.percetage + Steal.percetage + Field.goal.percetage + 
+    Free.throw.percetage + height  + Average.points, 
+    data = Season_salary,trControl = k10_cv, method = "lm")
+ols_model2$results
+
+result1 <- as.data.frame(ols_model2$results)
+
+
+```
+
+## Try something different to solve the potential Multiple collinearity Problem
+```{r}
+##### Model 2: Salary: lm
+model3 <- lm (real.salary ~  weight + True.shooting.percetage + Turnover.percetage + Blocks, data = Season_salary)
+summary(model3)
+
+
+stepAIC(model3, direction = "backward")
+
+
+model3<- lm(formula = real.salary ~ True.shooting.percetage + Turnover.percetage + Blocks, data = Season_salary)
+summary(model3)
+plot(model3)
+
+
+x <- data.frame(Season_salary$True.shooting.percetage, Season_salary$Turnover.percetage, Season_salary$Turnover.percetage, Season_salary$Blocks)
+X <- data.matrix(x)
+
+
+
+set.seed(123)
+training.samples <- real.salary %>%
+  createDataPartition(p = 0.7, list = FALSE)
+train.data  <- x[training.samples, ]
+test.data <- x[-training.samples, ]
+# Build the model
+model3 <- lm(real.salary ~ X, data = train.data)
+# Make predictions and compute the R2, RMSE and MAE
+predictions <- model3 %>% predict(test.data)
+
+#MSE:
+RMSE_model3 = RMSE(predictions, real.salary)
+MSE_model3 = mse(predictions, real.salary)
+
+k10_cv = trainControl(method="cv", number=10)
+ols_model3 = train(real.salary ~ True.shooting.percetage + Turnover.percetage + Blocks, data = Season_salary,trControl = k10_cv, method = "lm")
+ols_model3$results
+
+# But it doesn't work well
+```
+
+
+## lg lm
+```{r}
+model2<- lm(formula = log(real.salary,10) ~ Age  + Total.rebound.percetage + 
+    Assist.percetage + Steal.percetage + Field.goal.percetage + Free.throw.percetage + height + Average.points, 
+data = Season_salary)
+
+summary(model2)
+plot(model2)
+
+
+summary(lglm)
+plot(lglm)
+
+
+x <- data.frame(Season_salary$Age,Season_salary$Total.rebound.percetage ,
+    Season_salary$Assist.percetage , Season_salary$Steal.percetage , Season_salary$Field.goal.percetage , 
+    Season_salary$Free.throw.percetage , Season_salary$height, Season_salary$Average.points)
+X <- data.matrix(x)
+
+
+
+set.seed(123)
+training.samples <- real.salary %>%
+  createDataPartition(p = 0.7, list = FALSE)
+train.data  <- x[training.samples, ]
+train.y <- (real.salary[training.samples])
+test.y <- real.salary[-training.samples]
+test.data <- x[-training.samples, ]
+# Build the model
+model2 <- lm(log(real.salary,10) ~ X, data = train.data)
+# Make predictions and compute the R2, RMSE and MAE
+predictions <- model2 %>% predict(test.data)
+
+#MSE:
+#data.frame( R2 = R2(predictions, real.salary),
+model2_RMSE = RMSE(predictions, real.salary)
+model2_MSE = mse(predictions, real.salary)
+
+
+
+k10_cv = trainControl(method="cv", number=10)
+ols_model2 = train(real.salary ~ Age + Player.efficiency.rating + Total.rebound.percetage + 
+    Assist.percetage + Steal.percetage + Field.goal.percetage + 
+    Free.throw.percetage + height + weight + Average.points, 
+    data = Season_salary,trControl = k10_cv, method = "lm")
+ols_model2$results
+```
+
+
+## Ridge & Lasso
+```{r}
+x <- data.frame(Season_salary$Age,Season_salary$Total.rebound.percetage ,
+    Season_salary$Assist.percetage , Season_salary$Steal.percetage , Season_salary$Field.goal.percetage , 
+    Season_salary$Free.throw.percetage , Season_salary$height, Season_salary$Average.points)
+X <- data.matrix(x)
+
+
+#model 4 salary model ridge & lasso
+
+Ridge <- cv.glmnet(X,log(real.salary,10), alpha=0)
+print(Ridge$lambda.min)
+
+Lasso <- cv.glmnet(X,log(real.salary,10), alpha=1)
+print(Lasso$lambda.min)
+
+#### Plot of the coefficient values
+
+plot(Ridge)
+plot(Lasso)
+
+
+
+#### Using the “best” lambda value
+
+BestLasso <- glmnet(X,log(real.salary,10),alpha = 1, lambda = Lasso$lambda.min)
+BestLasso$beta
+
+
+BestRidge <- glmnet(X,log(real.salary,10),alpha = 0, lambda = Ridge$lambda.min)
+BestRidge$beta
+
+ridge_model = train(real.salary ~ Age  + Total.rebound.percetage + 
+    Assist.percetage + Steal.percetage + Field.goal.percetage + 
+    Free.throw.percetage + height + Average.points, 
+    data = Season_salary,trControl = k10_cv, method = "ridge")
+ridge_model$results
+
+lasso_model = train(real.salary ~ Age  + Total.rebound.percetage + 
+    Assist.percetage + Steal.percetage + Field.goal.percetage + 
+    Free.throw.percetage + height  + Average.points, 
+    data = Season_salary,trControl = k10_cv, method = "lasso")
+lasso_model$results
+
+```
+
+## Principle Component Model
+```{r}
+x <- data.frame(Season_salary$Age,Season_salary$Player.efficiency.rating , Season_salary$Total.rebound.percetage ,
+    Season_salary$Assist.percetage , Season_salary$Steal.percetage , Season_salary$Field.goal.percetage , 
+    Season_salary$Free.throw.percetage , Season_salary$height , Season_salary$weight , Season_salary$Average.points)
+
+
+pca.x <- data.frame(Season_salary$Age,Season_salary$Player.efficiency.rating , Season_salary$Total.rebound.percetage ,
+    Season_salary$Assist.percetage , Season_salary$Steal.percetage , Season_salary$Field.goal.percetage , 
+    Season_salary$Free.throw.percetage , Season_salary$height , Season_salary$weight , Season_salary$Average.points)
+
+
+pca.full <- data.frame(real.salary,pca.x)
+
+pca.X <- data.matrix(pca.x)
+pca.FULL <- data.matrix(pca.full)
+
+fa.parallel(pca.x, fa = 'pc', n.iter = 100, show.legend = FALSE) #Scree plot
+
+# pca = PCA(pca.x, scale.unit=TRUE, ncp=3, graph=TRUE)
+# pca = PCA(pca.x, scale.unit=FALSE, ncp=3, graph=TRUE)
+# dimdesc(pca, axes=c(1,2))
+da.panelellipses=panellipse(pca.full, col.p=1, col.j=2, firstvar=3)
+
+pca.method1 <- principal(pca.x, nfactors = 3, rotate = "none")
+pca.method1
+
+pca.model <- lm(real.salary ~ pca.method1$scores[,1] + pca.method1$scores[,2] + pca.method1$scores[,3])
+summary(pca.model)
+
+pca.cv <- data.frame(real.salary, pca.method1$scores[,1], pca.method1$scores[,2], pca.method1$scores[,3])
+names(pca.cv) <- c("real.salary", "pc1", "pc2", "pc3")
+
+pca.result = train(real.salary ~ pc1 + pc2, data= pca.cv, trControl = k10_cv, method = "lm")
+pca.result$results
+
+
+
+# Draw conclusion: which model is the best one
+```
+
+#### Nonlinear - KNN
+```{r}
+?knnreg
+?plot
+
+
+fit <- knnreg(train.data, train.y, k = 5)
+
+plot(test.y, predict(fit, test.x))
+
+
+
+line(test.y==predict(fit, test.data))
+
+knn = train(real.salary ~ Age + Player.efficiency.rating + Total.rebound.percetage + 
+    Assist.percetage + Steal.percetage + Field.goal.percetage + 
+    Free.throw.percetage + height + weight + Average.points, 
+    data = Season_salary,trControl = k10_cv, method = "knn")
+knn$results
+# Draw conclusion: which model is the best one
+```
+
+
+## Part 3: Hall of Fame Prediction:
+```{r}
+# Hall of Fame Prediction
+Seasondata_After1980$Player <- as.character(Seasondata_After1980$Player)
+a <- Seasondata_After1980
+a$Player = as.character(gsub("[\\*,]", "", a$Player))
+
+a$hof <- as.character(a$Player!=Seasondata_After1980$Player)
+
+#====================================================
+# Build HoF Training Sample:
+hof_players <- subset(a, a$hof=="TRUE")
+regular_players <- subset(a, a$hof=="FALSE")
+regular_players <- subset(regular_players, regular_players$Year < 1995)
+
+
+hof_players$hof.poss <- 1
+hof_players <- hof_players[,-c(52,53)]
+hof_players <- hof_players[,-c(1,2,4,6,8)]
+hof_players <- hof_players[,-c(2)]
+hof_players <- hof_players[,-c(2,3)]
+hof_players <- as.data.frame(hof_players)
+
+regular_players$hof.poss <- 0
+regular_players <- regular_players[,-c(52,53)]
+regular_players <- regular_players[,-c(1,2,4,6,8)]
+regular_players <- regular_players[,-c(2)]
+regular_players <- regular_players[,-c(2,3)]
+regular_players <- as.data.frame(regular_players)
+
+
+# hof_players <- arrange(hof_players, hof_players$Player)
+hof_players<- mtable(hof_players, bycol = "Player", firstvarcol = 2)
+hof_players <- as.data.frame(hof_players)
+hof_players <- subset(hof_players, hof_players$Points > 100)
+hof_players$hof.poss <- 1
+hof_players <- as.data.frame(hof_players)
+hof_players <- hof_players[complete.cases(hof_players),]
+
+
+
+regular_players<- mtable(regular_players, bycol = "Player", firstvarcol = 2)
+regular_players <- as.data.frame(regular_players)
+#regular_players <- subset(regular_players, regular_players$Points > 100)
+regular_players$hof.poss <- 0
+regular_players <- as.data.frame(regular_players)
+regular_players <- regular_players[complete.cases(regular_players),]
+
+sample <- rbind(hof_players, regular_players)
+sample.x <- sample[,-43]
+#====================================================
+# Build Prediction Sample:
+regular_players1 <- subset(a, a$hof=="FALSE")
+regular_players1 <- subset(regular_players1, regular_players1$Year >= 1995)
+
+regular_players1 <- regular_players1[,-c(1,2,4,5,6,7,8,52)]
+regular_players1 <- regular_players1[,-2]
+regular_players1 <- mtable(regular_players1, bycol = "Player", firstvarcol = 2)
+regular_players1 <- as.data.frame(regular_players1)
+
+regular_players1 <- regular_players1[,-43]
+regular_players1 <- regular_players1[complete.cases(regular_players1),]
+prediction.x <- regular_players1
+
+
+#====================================================
+
+fa.parallel(sample.x, fa = 'pc', n.iter = 100, show.legend = FALSE)
+pca = PCA(sample.x, scale.unit=TRUE, ncp=6, graph=TRUE)
+
+
+hof.method <- principal(sample.x, nfactors = 6, rotate = "none")
+hof.method
+
+
+logit.dataset <- data.frame(sample$hof.poss, hof.method$scores[,1], hof.method$scores[,2], hof.method$scores[,3], hof.method$scores[,4], hof.method$scores[,5], hof.method$scores[,6])
+names(logit.dataset) <- c("hof.poss", "pc1", "pc2","pc3","pc4","pc5","pc6")
+
+hof.model <- glm(hof.poss~ pc1 + pc2 + pc3 + pc4 + pc5 + pc6 , data = logit.dataset, family = binomial)
+summary(hof.model)  # Logistic Model
+
+
+
+#fa.parallel(prediction.x, fa = 'pc', n.iter = 100, show.legend = FALSE)
+#pca = PCA(prediction.x, scale.unit=TRUE, ncp=6, graph=TRUE)
+
+predict.method <- principal(prediction.x, nfactors = 6, rotate = "none")
+predict.method
+
+prediction.x <- data.frame(predict.method$scores[,1], predict.method$scores[,2], predict.method$scores[,3], predict.method$scores[,4], predict.method$scores[,5], predict.method$scores[,6])
+names(prediction.x) <- c("pc1", "pc2","pc3","pc4", "pc5", "pc6")
+
+# logit.model <- glm(hof.poss~., data = hof_players, family=binomial(link="logit"))
+
+
+
+prediction.x$hof.poss <- plogis(predict(hof.model, prediction.x))
+
+prediction.x
+
+
+
+hof_prediction <- setDT(prediction.x, keep.rownames = TRUE)[]
+hof_prediction <- hof_prediction[,-c(2,3,4,5,6,7)]
+hof_prediction <- hof_prediction[order(hof_prediction$hof.poss),]
+hof_prediction <- hof_prediction[nrow(hof_prediction):1]
+hof_prediction[1:20,]
+```
+
+
