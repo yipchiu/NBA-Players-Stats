@@ -1,0 +1,1 @@
+Analyzed NBA individual players seasonally data since 1980. General descriptive analysis were firstly conducted before seasonal salary data was brought in and built up different models to test their performance. Last, a Hall of Fame prediction algorithm was created by PCA and logistics regression.
